@@ -1,0 +1,26 @@
+name: Test Fandom Sync
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Make script executable
+        run: chmod +x .github/workflows/scripts/changes.sh
+
+      - name: Run changes script
+        run: |
+          .github/workflows/scripts/changes.sh \
+            "https://nafetskys-archiv.fandom.com/de" \
+            0
