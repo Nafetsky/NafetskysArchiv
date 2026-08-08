@@ -17,10 +17,15 @@ jobs:
           sudo apt-get install -y jq
 
       - name: Make script executable
-        run: chmod +x .github/workflows/scripts/changes.sh
+        run: |
+          chmod +x .github/workflows/scripts/changes.sh
+          chmod +x .github/workflows/scripts/store-pages.sh
 
       - name: Run changes script
         run: |
           .github/workflows/scripts/changes.sh \
             "https://nafetskys-archiv.fandom.com/de" \
-            0
+            0 \
+          | .github/workflows/scripts/store-pages.sh \
+            "https://nafetskys-archiv.fandom.com/de" \
+            export
