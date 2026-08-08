@@ -21,6 +21,6 @@ jobs:
 
       - name: Run changes script
         run: |
-          scripts/changes.sh \
+          .github/workflows/scripts/changes.sh \
             "https://nafetskys-archiv.fandom.com/de" \
             0
