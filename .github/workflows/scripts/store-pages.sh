@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Reads NDJSON from stdin as produced by changes.sh.
-#
-# Usage:
-#   ./changes.sh "https://nafetskys-archiv.fandom.com/de" 0 \
-#     | ./store-pages.sh "https://nafetskys-archiv.fandom.com/de" export
-#
-# Processes only records with type="page".
-# Other records (cursor/delete/move) are ignored here.
-
 if [[ $# -lt 1 || $# -gt 2 ]]; then
   echo "Usage: $0 <fandom-base-url> [output-directory]" >&2
   exit 2
@@ -20,7 +11,7 @@ OUTPUT_DIR="${2:-export}"
 API="$BASE/api.php"
 ROOT_CATEGORY="Kategorie:Kategorien"
 
-for cmd in curl jq mktemp sort awk cut head; do
+for cmd in curl jq html2text awk sort mktemp sed; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "ERROR: Required command '$cmd' was not found." >&2
     exit 127
@@ -41,16 +32,28 @@ api() {
 safe_name() {
   local value="$1"
 
-  value="${value//\//_}"
-  value="${value//\\/_}"
-  value="${value//$'\n'/ }"
-  value="${value//$'\r'/ }"
-  value="${value//$'\t'/ }"
-  value="${value//:/ -}"
+  # Invalid in Windows file/directory names: < > : " / \ | ? *
+  # Remove them instead of replacing them.
+  value="$(printf '%s' "$value" | tr -d '<>:"/\\|?*')"
+
+  # Remove ASCII control characters (0x00-0x1F).
+  value="$(printf '%s' "$value" | tr -d '\000-\037')"
+
+  # Windows does not allow trailing spaces or dots.
+  while [[ "$value" == *" " || "$value" == *"." ]]; do
+    value="${value%?}"
+  done
 
   [[ "$value" == "." ]] && value="_"
   [[ "$value" == ".." ]] && value="__"
   [[ -z "$value" ]] && value="_"
+
+  # Reserved Windows device names are invalid even with an extension.
+  case "${value^^}" in
+    CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])
+      value="_${value}"
+      ;;
+  esac
 
   printf '%s' "$value"
 }
@@ -65,29 +68,27 @@ category_name() {
 CATEGORY_PATHS="$(mktemp)"
 QUEUE="$(mktemp)"
 NEXT_QUEUE="$(mktemp)"
-INPUT="$(mktemp)"
 
 cleanup() {
-  rm -f "$CATEGORY_PATHS" "$QUEUE" "$NEXT_QUEUE" "$INPUT"
+  rm -f "$CATEGORY_PATHS" "$QUEUE" "$NEXT_QUEUE"
 }
 trap cleanup EXIT
 
-# Root category itself maps to the export root.
 printf '%s\t%s\n' "$ROOT_CATEGORY" "" > "$CATEGORY_PATHS"
 printf '%s\t%s\n' "$ROOT_CATEGORY" "" > "$QUEUE"
 
 category_seen() {
   local category="$1"
-  awk -F $'\t' -v category="$category" \
-    '$1 == category { found=1; exit } END { exit !found }' \
-    "$CATEGORY_PATHS"
+  awk -F $'\t' -v category="$category" '
+    $1 == category { found=1; exit }
+    END { exit !found }
+  ' "$CATEGORY_PATHS"
 }
 
-# Breadth-first walk from Kategorie:Kategorien.
-# The first discovered path to a category is therefore a shortest path.
 while [[ -s "$QUEUE" ]]; do
   : > "$NEXT_QUEUE"
 
+  sort -t $'\t' -k2,2 -k1,1 "$QUEUE" |
   while IFS=$'\t' read -r parent parent_path; do
     cont=""
 
@@ -106,7 +107,10 @@ while [[ -s "$QUEUE" ]]; do
 
       while IFS= read -r child; do
         [[ -z "$child" ]] && continue
-        category_seen "$child" && continue
+
+        if category_seen "$child"; then
+          continue
+        fi
 
         child_name="$(category_name "$child")"
         child_dir="$(safe_name "$child_name")"
@@ -119,18 +123,16 @@ while [[ -s "$QUEUE" ]]; do
 
         printf '%s\t%s\n' "$child" "$child_path" >> "$CATEGORY_PATHS"
         printf '%s\t%s\n' "$child" "$child_path" >> "$NEXT_QUEUE"
-      done < <(echo "$json" | jq -r '.query.categorymembers[].title')
+      done < <(jq -r '.query.categorymembers[]?.title' <<< "$json")
 
-      cont="$(echo "$json" | jq -r '.continue.cmcontinue // empty')"
+      cont="$(jq -r '.continue.cmcontinue // empty' <<< "$json")"
       [[ -z "$cont" ]] && break
     done
-  done < <(sort -t $'\t' -k1,1 "$QUEUE")
+  done
 
-  cp "$NEXT_QUEUE" "$QUEUE"
+  mv "$NEXT_QUEUE" "$QUEUE"
+  NEXT_QUEUE="$(mktemp)"
 done
-
-# Buffer stdin so the caller can pipe changes.sh directly into us.
-cat > "$INPUT"
 
 while IFS= read -r event; do
   [[ -z "$event" ]] && continue
@@ -140,28 +142,48 @@ while IFS= read -r event; do
 
   page_id="$(jq -r '.pageId' <<< "$event")"
 
-  # Fetch current revision metadata, categories and full plain text.
-  json="$(api \
+  meta_json="$(api \
     --data-urlencode "action=query" \
     --data-urlencode "pageids=$page_id" \
-    --data-urlencode "prop=revisions|categories|extracts" \
+    --data-urlencode "prop=revisions|categories" \
     --data-urlencode "rvprop=ids|timestamp" \
     --data-urlencode "rvlimit=1" \
-    --data-urlencode "cllimit=max" \
-    --data-urlencode "explaintext=1" \
-    --data-urlencode "exsectionformat=plain"
+    --data-urlencode "cllimit=max"
   )"
 
-  missing="$(echo "$json" | jq -r '.query.pages | to_entries[0].value.missing // false')"
+  missing="$(jq -r '.query.pages | to_entries[0].value.missing // false' <<< "$meta_json")"
   if [[ "$missing" == "true" ]]; then
     echo "WARN: pageId=$page_id no longer exists; skipping." >&2
     continue
   fi
 
-  title="$(echo "$json" | jq -r '.query.pages | to_entries[0].value.title')"
+  title="$(jq -r '.query.pages | to_entries[0].value.title' <<< "$meta_json")"
 
-  # For every category of the page, look up its path from Kategorie:Kategorien.
-  # Pick the path with the fewest directory components.
+  parse_json="$(api \
+    --data-urlencode "action=parse" \
+    --data-urlencode "pageid=$page_id" \
+    --data-urlencode "prop=text"
+  )"
+
+  if jq -e '.error' >/dev/null <<< "$parse_json"; then
+    echo "ERROR: Could not parse pageId=$page_id ($title):" >&2
+    jq -c '.error' <<< "$parse_json" >&2
+    exit 1
+  fi
+
+  html="$(jq -r '.parse.text["*"] // empty' <<< "$parse_json")"
+
+  if [[ -z "$html" ]]; then
+    echo "ERROR: Fandom returned no parsed text for pageId=$page_id ($title)." >&2
+    exit 1
+  fi
+
+  text="$(
+    printf '%s' "$html" |
+      html2text -utf8 -width 10000 |
+      sed -e 's/[[:space:]]\+$//'
+  )"
+
   chosen_path="$(
     while IFS= read -r category; do
       [[ -z "$category" ]] && continue
@@ -175,8 +197,7 @@ while IFS= read -r event; do
         }
       ' "$CATEGORY_PATHS"
     done < <(
-      echo "$json" |
-        jq -r '.query.pages | to_entries[0].value.categories[]?.title'
+      jq -r '.query.pages | to_entries[0].value.categories[]?.title' <<< "$meta_json"
     ) |
       sort -t $'\t' -k1,1n -k2,2 |
       head -n 1 |
@@ -191,8 +212,9 @@ while IFS= read -r event; do
   target="$target_dir/$filename"
   tmp_target="$target.tmp"
 
-  echo "$json" |
-    jq '
+  jq \
+    --arg text "$text" \
+    '
       .query.pages
       | to_entries[0].value
       | {
@@ -204,11 +226,11 @@ while IFS= read -r event; do
             .categories[]?.title
             | sub("^(Kategorie|Category):"; "")
           ],
-          text: (.extract // "")
+          text: $text
         }
-    ' > "$tmp_target"
+    ' <<< "$meta_json" > "$tmp_target"
 
   mv -f "$tmp_target" "$target"
-  echo "Wrote: $target" >&2
 
-done < "$INPUT"
+  echo "Wrote: $target" >&2
+done
