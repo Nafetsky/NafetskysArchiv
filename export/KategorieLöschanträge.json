@@ -1,0 +1,11 @@
+{
+  "title": "Kategorie:Löschanträge",
+  "pageId": 9,
+  "revision": 9,
+  "lastModified": "2020-08-08T09:57:56Z",
+  "categories": [
+    "Administration",
+    "Organisation"
+  ],
+  "text": "Um eine Seite zu löschen schreibt ihr einfach <code><nowiki>{{löschen}}</nowiki></code> auf die Seite und ein Admin wird sich darum kümmern.\n[[Kategorie:Organisation|*]]\n[[Kategorie:Administration]]"
+}

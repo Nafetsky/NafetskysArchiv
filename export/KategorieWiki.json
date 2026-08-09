@@ -1,0 +1,8 @@
+{
+  "title": "Kategorie:Wiki",
+  "pageId": 70,
+  "revision": 70,
+  "lastModified": "2020-08-08T09:57:56Z",
+  "categories": [],
+  "text": "{| class=\"wikitable\" width=\"100%;\"\n|-\n|Die hier ist die Oberkategorie, oder einfach gesagt die Kategorie wo alle zusammenkommen.\n\nIdealerweise sollte jede andere Kategorie über Unterkategorien von hier erreicht werden können. Viele passen sicher in die Kategorien Organisation, Inhalt oder Dateien.\n\nDie Kategorie \"Inhalt\" teilt sich in alle Dinge, die von deinem Thema handeln, während \"Organisation\" für alle administrativen Seiten verwendet wird. Eine komplette Liste mit Kategorien kann unter [[Spezial:Kategorien]] aufgerufen werden.\n\nUm eine neue Kategorie zu einer Seite hinzuzufügen, füge einfach <code><nowiki>[[Kategorie:Kategoriename]]</nowiki></code> ans Ende des Artikels oder einer Kategorieseite.\n|}"
+}
