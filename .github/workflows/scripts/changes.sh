@@ -19,6 +19,7 @@ done
 
 api() {
   sleep 0.25
+
   curl -fsSLG \
     --retry 10 \
     --retry-max-time 300 \
@@ -33,23 +34,29 @@ api() {
 if [[ "$LAST_RCID" == "0" ]]; then
   tmp_pages="$(mktemp)"
   trap 'rm -f "$tmp_pages"' EXIT
-  cont=""
+  # Namespace 0 = normal content pages
+  # Namespace 14 = category pages. Category pages may contain their own
+  # relevant wiki content, so they are part of the export as well.
+  for namespace in 0 14; do
+    cont=""
 
-  while :; do
-    args=(
-      --data-urlencode "action=query"
-      --data-urlencode "list=allpages"
-      --data-urlencode "aplimit=max"
-    )
-    [[ -n "$cont" ]] && args+=(--data-urlencode "apcontinue=$cont")
+    while :; do
+      args=(
+        --data-urlencode "action=query"
+        --data-urlencode "list=allpages"
+        --data-urlencode "apnamespace=$namespace"
+        --data-urlencode "aplimit=max"
+      )
+      [[ -n "$cont" ]] && args+=(--data-urlencode "apcontinue=$cont")
 
-    json="$(api "${args[@]}")"
+      json="$(api "${args[@]}")"
 
-    echo "$json" |
-      jq -r '.query.allpages[] | [.pageid, .title] | @tsv' >> "$tmp_pages"
+      echo "$json" |
+        jq -r '.query.allpages[] | [.pageid, .title] | @tsv' >> "$tmp_pages"
 
-    cont="$(echo "$json" | jq -r '.continue.apcontinue // empty')"
-    [[ -z "$cont" ]] && break
+      cont="$(echo "$json" | jq -r '.continue.apcontinue // empty')"
+      [[ -z "$cont" ]] && break
+    done
   done
 
   while IFS=$'\t' read -r page_id title; do
