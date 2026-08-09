@@ -18,7 +18,12 @@ for cmd in curl jq mktemp sort; do
 done
 
 api() {
-  curl -fsSLG --retry 3 --retry-delay 1 \
+  sleep 0.25
+  curl -fsSLG \
+    --retry 10 \
+    --retry-max-time 300 \
+    --retry-all-errors \
+    --user-agent "NafetskysArchivGitHubBackup/1.0" \
     --data-urlencode "format=json" \
     "$API" "$@"
 }

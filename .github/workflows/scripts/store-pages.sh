@@ -21,12 +21,14 @@ done
 mkdir -p "$OUTPUT_DIR"
 
 api() {
+  sleep 0.25
   curl -fsSLG \
-    --retry 3 \
-    --retry-delay 1 \
+    --retry 10 \
+    --retry-max-time 300 \
+    --retry-all-errors \
+    --user-agent "NafetskysArchivGitHubBackup/1.0" \
     --data-urlencode "format=json" \
-    "$API" \
-    "$@"
+    "$API" "$@"
 }
 
 safe_name() {
