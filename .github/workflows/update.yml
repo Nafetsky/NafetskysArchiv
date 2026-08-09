@@ -52,13 +52,11 @@ jobs:
 
           echo "Starting sync after rcid: $LAST_RCID"
 
-          # 1. Changes vollständig bestimmen.
           .github/workflows/scripts/changes.sh \
             "$WIKI_URL" \
             "$LAST_RCID" \
             > "$CHANGES_FILE"
 
-          # 2. Erst danach Seiten herunterladen.
           .github/workflows/scripts/store-pages.sh \
             "$WIKI_URL" \
             export \
@@ -67,18 +65,17 @@ jobs:
           NEW_RCID="$(
             jq -r 'select(.type == "cursor") | .rcid' "$CHANGES_FILE" \
               | tail -n 1
-          )
+          )"
 
           if [[ ! "$NEW_RCID" =~ ^[0-9]+$ ]]; then
             echo "ERROR: changes.sh did not return a valid cursor." >&2
             exit 1
           fi
 
-          cat > "$METADATA_FILE" <<EOF
-          fandom:
-            url: "$WIKI_URL"
-            rcid: $NEW_RCID
-          EOF
+          printf 'fandom:\n  url: "%s"\n  rcid: %s\n' \
+            "$WIKI_URL" \
+            "$NEW_RCID" \
+            > "$METADATA_FILE"
 
           echo "Sync finished at rcid: $NEW_RCID"
 
