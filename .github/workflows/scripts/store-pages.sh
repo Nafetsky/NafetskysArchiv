@@ -11,7 +11,7 @@ OUTPUT_DIR="${2:-export}"
 API="$BASE/api.php"
 ROOT_CATEGORY="Kategorie:Kategorien"
 
-for cmd in curl jq html2text awk sort mktemp sed; do
+for cmd in curl jq awk sort mktemp sed tr; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "ERROR: Required command '$cmd' was not found." >&2
     exit 127
@@ -22,13 +22,15 @@ mkdir -p "$OUTPUT_DIR"
 
 api() {
   sleep 0.25
+
   curl -fsSLG \
     --retry 10 \
     --retry-max-time 300 \
     --retry-all-errors \
-    --user-agent "NafetskysArchivGitHubBackup/1.0" \
+    --user-agent "NafetskysArchivGitHubSync/1.0" \
     --data-urlencode "format=json" \
-    "$API" "$@"
+    "$API" \
+    "$@"
 }
 
 safe_name() {
@@ -148,7 +150,8 @@ while IFS= read -r event; do
     --data-urlencode "action=query" \
     --data-urlencode "pageids=$page_id" \
     --data-urlencode "prop=revisions|categories" \
-    --data-urlencode "rvprop=ids|timestamp" \
+    --data-urlencode "rvprop=ids|timestamp|content" \
+    --data-urlencode "rvslots=main" \
     --data-urlencode "rvlimit=1" \
     --data-urlencode "cllimit=max"
   )"
@@ -160,31 +163,6 @@ while IFS= read -r event; do
   fi
 
   title="$(jq -r '.query.pages | to_entries[0].value.title' <<< "$meta_json")"
-
-  parse_json="$(api \
-    --data-urlencode "action=parse" \
-    --data-urlencode "pageid=$page_id" \
-    --data-urlencode "prop=text"
-  )"
-
-  if jq -e '.error' >/dev/null <<< "$parse_json"; then
-    echo "ERROR: Could not parse pageId=$page_id ($title):" >&2
-    jq -c '.error' <<< "$parse_json" >&2
-    exit 1
-  fi
-
-  html="$(jq -r '.parse.text["*"] // empty' <<< "$parse_json")"
-
-  if [[ -z "$html" ]]; then
-    echo "ERROR: Fandom returned no parsed text for pageId=$page_id ($title)." >&2
-    exit 1
-  fi
-
-  text="$(
-    printf '%s' "$html" |
-      html2text -utf8 -width 10000 |
-      sed -e 's/[[:space:]]\+$//'
-  )"
 
   chosen_path="$(
     while IFS= read -r category; do
@@ -214,23 +192,25 @@ while IFS= read -r event; do
   target="$target_dir/$filename"
   tmp_target="$target.tmp"
 
-  jq \
-    --arg text "$text" \
-    '
-      .query.pages
-      | to_entries[0].value
-      | {
-          title: .title,
-          pageId: .pageid,
-          revision: .revisions[0].revid,
-          lastModified: .revisions[0].timestamp,
-          categories: [
-            .categories[]?.title
-            | sub("^(Kategorie|Category):"; "")
-          ],
-          text: $text
-        }
-    ' <<< "$meta_json" > "$tmp_target"
+  jq '
+    .query.pages
+    | to_entries[0].value
+    | {
+        title: .title,
+        pageId: .pageid,
+        revision: .revisions[0].revid,
+        lastModified: .revisions[0].timestamp,
+        categories: [
+          .categories[]?.title
+          | sub("^(Kategorie|Category):"; "")
+        ],
+        text: (
+          .revisions[0].slots.main["*"]
+          // .revisions[0]["*"]
+          // ""
+        )
+      }
+  ' <<< "$meta_json" > "$tmp_target"
 
   mv -f "$tmp_target" "$target"
 
