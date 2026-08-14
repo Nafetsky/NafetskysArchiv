@@ -2,6 +2,8 @@ name: Test Fandom Sync
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron : '0 1 * * 1,5,6'
 
 permissions:
   contents: write
